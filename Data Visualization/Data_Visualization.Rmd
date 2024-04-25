@@ -1,0 +1,90 @@
+---
+title: "Data Visualization"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Part 1**
+
+**Load the data**
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+
+queen <- read_csv("queen.csv")
+head(queen)
+```
+
+**Create a bar chart that shows the number of tracks in each album.**
+
+```{r}
+ggplot(data = queen) +
+  geom_bar(mapping = aes(x = album_name), fill = "lightblue") +
+  coord_flip()
+```
+
+**Plot a histogram (with 15 bins) showing the distribution of the tempo values of the tracks, using the aesthetic fill to show the mode distribution of the tracks in each bin.**
+
+```{r}
+ggplot(queen, aes(x = tempo, fill = mode)) + 
+  geom_histogram(bins = 15)
+```
+
+**Display the tempo box plots by album.**
+
+```{r}
+ggplot(queen, aes(x = album_name, y = tempo)) + 
+  geom_boxplot() + xlab("")
+```
+
+**Using the aesthetic size for tempo, create a faceted scatter plot for each album in terms of danceability and energy.**
+
+```{r}
+ggplot(queen, aes(danceability, energy, size = tempo)) +  
+  geom_point() +
+  facet_wrap(~album_name)
+```
+
+**Scatterplot of the relationship between danceability and track popularity.**
+
+```{r}
+ggplot(queen, aes(danceability, track_popularity)) +
+  geom_point() +
+  ggtitle("Relationship between danceability and popularity")
+```
+
+**Chart showing the popularity of each album in ascending order.**
+
+```{r}
+ggplot(queen, aes(x = album_popularity, y = reorder(album_name,album_popularity))) +
+  geom_point(color = "blue") +
+  ylab("Albumns from 1973 - 1991") +
+  xlab("Popularity of Queen's albums\n")
+```
+
+**Part 2**
+
+**Load the data**
+```{r}
+mc <- read_csv("mcdonalds.csv")
+head(mc)
+```
+
+**Calculate the values of the BIG MAC in US dollars.**
+
+```{r}
+mc<- mc%>%
+  mutate(priceDollars=local_price / dollar_ex)
+mc
+```
+
+**Scatterplot of the GDP of the countries and the value of the BIG MAC in US dollars.**
+
+```{r}
+ggplot(data = mc, mapping = aes(x = GDP_dollar, y = priceDollars)) +
+  geom_point()
+```
