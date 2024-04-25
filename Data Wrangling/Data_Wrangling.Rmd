@@ -1,0 +1,163 @@
+---
+title: "Data Wrangling"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Part Α 
+
+**The following data were used :**
+
+```{r}
+library(tidyverse)
+
+data <- tribble(
+  ~happy, ~uptempo, ~blues, ~jazz, ~gospel,
+  "yes", "yes", 10, 5, 20,
+  "no", "no", NA, 12, 15,
+  "yes", "no", 7, 6, 4,
+  "no", "yes", 3, NA, NA
+)
+
+```
+
+
+```{r}
+
+data_tidy1 <- data %>% 
+  gather(key = "genre", value = "count", c(-happy, -uptempo))
+data_tidy1
+
+```
+
+
+```{r}
+
+data_tidy2 <- data_tidy1 %>% 
+  filter(!is.na(count))
+data_tidy2
+
+```
+
+
+
+```{r}
+data_tidy3 <- data_tidy2 %>%
+  select(-uptempo) %>%  
+  mutate(happy = ifelse(happy=="yes", TRUE,FALSE)) %>%
+  mutate(genre = ifelse(genre=="jazz", TRUE,FALSE)) %>%
+  rename(jazz = genre) %>% 
+  group_by(happy, jazz) %>% 
+  summarise(total = sum(count[happy == TRUE & jazz == TRUE],
+                        count[happy == TRUE & jazz== FALSE],
+                        count[happy == FALSE & jazz == FALSE],
+                        count[happy == FALSE & jazz == TRUE])) %>%
+  relocate(jazz) %>%
+  arrange(jazz)
+data_tidy3
+```
+
+
+
+```{r}
+
+data_tidy2_d <- subset(data_tidy2, genre == "jazz" & happy == "no", select=c(count))
+data_tidy2_d
+data_tidy3_d <- subset(data_tidy3, jazz == TRUE & happy == FALSE, select=c(total))
+data_tidy3_d
+
+```
+
+## Part Β
+
+**The following data were used :**
+
+**Load the data...**
+
+```{r}
+library(tidyverse)
+who <- tidyr::who
+view(who)
+```
+
+
+```{r}
+dict_url <- "https://extranet.who.int/tme/generateCSV.asp?ds=dictionary"
+if (!file.exists("dict.csv")) download.file(dict_url, "dict.csv")
+dict <- read_csv('dict.csv')
+view(dict)
+labels <- data.frame(name = colnames(who))
+view(labels)
+explanations <- semi_join(dict, labels, by=c("variable_name" = "name"))
+view(explanations)
+```
+
+**Convert the table to have the following format: who(country, iso2, iso3, year, notification, cases). Ignore NA values.**
+
+```{r}
+who <- who %>%
+  gather(key = "notification", value = "cases", c(new_sp_m014:newrel_f65)) %>%
+  filter(!is.na(cases)) 
+who
+```
+
+**Replace all occurrences of the string "newrel" in the notification column with the string "new_rel".**
+
+```{r}
+who <- who %>%
+  mutate(across('notification', str_replace, 'newrel', 'new_rel')) 
+who
+```
+
+**Split the contents of the notification column into the new, type, sex, age columns.**
+
+```{r}
+who <- who %>%
+  separate(notification, into = c("new", "type", "sex"), sep = "_") %>%
+  separate(sex, into = c("sex", "age"), sep ="(?<=[A-Za-z])(?=[0-9])") 
+who
+```
+
+**Remove the columns new, iso2, iso3.**
+
+```{r}
+who <- who %>%
+  select(-new, -iso2, -iso3)
+who
+```
+
+**Calculate the total number of TB cases for each country.**
+
+```{r}
+who5 <- who %>%
+  select(-year, -type, -sex, -age) %>% 
+  group_by(country) %>% 
+  summarise(count = sum(cases))
+who5
+```
+
+**Find for each year the country with the highest number of smear positive pulmonary TB cases (sp).**
+
+```{r}
+who6 <- who %>%
+  select(year,country,cases) %>% 
+  group_by(year) %>%
+  slice(which.max(cases))
+who6
+```
+
+**For Greece only, provide a table with only 3 columns: year, f, and m, where the values for columns m and f are the total TB cases for women and men respectively. The table should be sorted in descending order by f+m, i.e. the total number of TB cases.**
+
+```{r}
+who7 <- who %>%
+  filter(country == "Greece")%>% 
+  select(year,sex,cases) %>%
+  pivot_wider(names_from = sex, values_from = cases, values_fn = sum) %>%
+  relocate(m, .after = f) %>%
+  arrange(desc(f+m)) 
+who7
+```
+
