@@ -1,0 +1,295 @@
+---
+title: "Music Album Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(sf)
+```
+
+
+```{r}
+data <- read.csv(file="album.csv", sep=",", header = TRUE)
+```
+
+## Pre-processing
+```{r}
+#Check for missing values 
+sum(is.na(data))
+```
+
+```{r}
+#Divide the third column into two separate columns named 'year' and 'title'
+data <- data %>%
+  separate(album, into = c("year", "title"), sep = " ", extra = "merge") 
+
+#Remove the brackets
+years <- gsub("[()]", "", data$year ) 
+data$year <- years 
+```
+
+
+```{r}
+# Create a new dataframe with the name "artists" which contains:
+#(a) the artists' names
+#(b) both their first two genres
+
+artists <- data[,c('artist','genre')]
+
+#Take the first two elements of the 'genre' column
+#Create two new columns named "primary_genre", "secondary_genre"
+artists <- artists %>%
+  separate(genre, into = c("primary_genre", "genre"), sep=",") %>%
+  separate(genre, into = "secondary_genre", sep=",")
+
+#In artists with only one genre the same is used in both columns
+for(row in 1:nrow(artists)) {
+  if (is.na(artists$secondary_genre[row])) {
+    artists$secondary_genre[row] = artists$primary_genre[row] 
+  }
+}
+
+```
+
+
+
+```{r}
+#Create the dataframe "albums" 
+albums <- data %>% 
+  #Eliminate the genres that are not unique
+  mutate(genre = map(str_split(genre, ','), ~ paste(unique(.x), collapse = ','))) %>% 
+  #Divide the genres into columns
+  separate(col = 1, into = paste0('genre', seq(max(str_count(data$genre, ',')) + 1L)), sep = ',')
+```
+
+
+```{r}
+# (a) Number of albums by genre
+#Case 1: Each album belongs only to the primary genre
+albums %>%
+  group_by(genre1) %>%
+  summarise(number_of_albums = n(), .groups = 'drop')
+```
+
+```{r}
+#(b) Number of albums by genre 
+# Case 2: Each album belongs to all its genres 
+albums %>%
+  gather("genre_type", "all_genres", 1:8) %>%
+  group_by(all_genres) %>%
+  summarise(number_of_albums = n(), .groups = 'drop')
+```
+
+
+
+```{r}
+# (c) Number of artists by genre
+# Case 1: Each artist belongs only to the primary genre
+albums %>%
+  group_by(genre1) %>%
+  summarise(number_of_artists = length(unique(artist)), .groups = 'drop')
+```
+
+```{r}
+# (d) Number of artists by genre 
+# Case 2: Each artist belongs to all its genres
+albums %>%
+  gather("genre_type", "all_genres", 1:8) %>%
+  group_by(all_genres) %>%
+  summarise(number_of_artists = length(unique(artist)), .groups = 'drop')
+```
+
+
+```{r}
+#Distribution of albums per year
+data_by_year <- data %>% 
+  group_by(year) %>%
+  summarise(number_of_albums = n())
+
+ggplot(data_by_year,aes(year, number_of_albums)) +
+  geom_bar(stat='identity', color="#2596BE", fill = "lightblue") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=2)) +
+  theme(axis.text = element_text(size = 6))
+```
+
+
+```{r}
+#Distribution of the top 5 genre over time 
+top_five <- albums %>%
+  select(title, genre1) %>%
+  group_by(genre1) %>%
+  summarise(count = n(), .groups ='drop') %>%
+  arrange(desc(count)) %>%
+  slice(1:5)
+
+albums_of_top5 <- albums %>%
+  select(year, title, genre1) %>%
+  filter(genre1 == top_five$genre1) %>%
+  group_by(year, genre1) %>%
+  summarise(number_of_albums = n(), .groups = 'drop')
+  
+ggplot(albums_of_top5, aes(year, number_of_albums, fill=genre1)) +
+  geom_bar(stat='identity') +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=2)) +
+  theme(axis.text = element_text(size = 6)) +
+  guides(fill=guide_legend(title="Top 5 Genres"))+
+  xlab("Years") + ylab("Number of albums") +
+  ggtitle("") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+```{r}
+#Create a mosaicplot to study the correlation between genres
+genres_table <- table(artists$primary_genre, artists$secondary_genre)
+mosaicplot(genres_table, main="Correlation between genres",
+           dir=c("v","h"), cex.axis = .5, las = 2,
+           color = "#66C2A5")
+```
+
+
+```{r}
+world <- st_read(system.file("shapes/world.gpkg", package="spData"))
+
+#Create a new dataframe with the names of the countries and 
+#the index of the titles where the country was found  
+country_in_title <- data.frame(country = world$name_long, pos = 0) 
+```
+
+```{r}
+for (i in 1:nrow(world)) {
+  country_in_title$pos[i] <- list(which(grepl(world$name_long[i], albums$title) == TRUE))
+}
+```
+
+```{r}
+country_in_title$pos[country_in_title$pos == "integer(0)"] <- 0
+
+#Break the position vectors into lines
+country_in_title$pos <- gsub("c", "", country_in_title$pos)
+country_in_title$pos <- gsub("[()]", "", country_in_title$pos)
+
+country_in_title <- country_in_title %>%
+  separate_rows(pos, sep = ", ") %>%
+  distinct()
+```
+
+```{r}
+#Add a column containing the countries present in the album titles
+albums_with_country <- albums %>%
+  select(title) %>%
+  mutate(country = 0) 
+```
+
+```{r}
+#Put each country found in a title in the corresponding index in the country column
+for (r in 1:nrow(country_in_title)) {
+  if (country_in_title$pos[r] != "0") {
+    num <- as.numeric(country_in_title$pos[r])
+    albums_with_country$country[num] <- country_in_title$country[r] 
+  } 
+}
+```
+
+```{r}
+#Calculating the number of albums per country
+albums_with_country <- albums_with_country %>%
+  filter(albums_with_country$country != 0) %>%
+  group_by(country) %>%
+  summarise(number_of_albums = n(), .groups = 'drop')
+```
+
+```{r}
+world <- world %>%
+  mutate(number_of_albums = 0)
+
+for (r in 1:nrow(albums_with_country)) {
+  c <- albums_with_country$country[r]
+  world$number_of_albums[world$name_long == c] <- albums_with_country$number_of_albums[r] 
+}
+```
+
+
+```{r}
+ggplot(data = world) +
+  geom_sf(color = "black", fill = "lightblue") +
+  geom_sf_label(data = world, aes(label = number_of_albums), size = 2) +
+  theme_void()
+```
+
+
+```{r}
+#Evolution of Blues music
+
+library(hrbrthemes)
+
+blues <- albums %>%
+  gather("genre_type", "all_genres", 1:8) %>%
+  group_by(all_genres) %>%
+  filter(all_genres == "Blues") %>%
+  group_by(year, all_genres) %>%
+  summarise(number_of_albums = n(), .groups = 'drop')
+  
+
+blues %>%
+ggplot(aes(x=year, y=number_of_albums)) +
+  geom_segment( aes(x=year, xend=year, y=0, yend=number_of_albums), color="grey") + 
+  geom_point(color="orange", size=4) +
+  theme_light() +
+  theme(
+  panel.grid.major.x = element_blank(),
+  panel.border = element_blank(),
+  axis.ticks.x = element_blank()
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=2)) +
+  theme(axis.text = element_text(size = 6)) +
+  ggtitle("Evolution of Blues")
+```
+
+```{r}
+#Finding the genre with the most albums and 
+#separating the artists of the respective genres 
+#based on the number of albums
+
+target <- c("Blues", "Pop-Rock", "Jazz", "Classical", "R&B")
+top_artists <- albums %>% 
+  group_by(artist, genre1) %>% 
+  filter(genre1 %in% target) %>% #year,
+  summarise(count = n(), .groups = 'drop') %>%
+  arrange(desc(count)) %>%
+  mutate(level = ifelse(count < 10, '< 10', ifelse(count > 30, '> 30', '10-30')))
+
+# Small multiple
+ggplot(top_artists, aes(fill=level, y=count, x=genre1)) + 
+    geom_bar(position="stack", stat="identity") +
+    guides(fill=guide_legend(title="Albums per Artist"))+
+    ggtitle("Which of these genres has the most albums ?") +
+    xlab("")
+```
+
+```{r}
+#Finding the most common secondary genre for artists 
+#whose primary genre is Blues music
+
+sec_genre <- artists %>%
+  filter(primary_genre == "Blues") %>%
+  group_by(secondary_genre) %>%
+  summarise(count=n())%>% 
+  arrange(desc(count)) %>%
+  mutate(prop = count / sum(count) *100) %>%
+  mutate(ypos = cumsum(prop)- 0.5*prop )
+
+ggplot(sec_genre,aes(x="", y=prop, fill=secondary_genre)) +
+   geom_bar(stat="identity", width=0.5, color="black") +
+   coord_polar("y", start=0) +
+   theme_void() +
+   guides(fill=guide_legend(title="Second genre of Blues artists"))+
+   ggtitle("Once a Blues singer, almost always a Blues singer!") 
+```
+
